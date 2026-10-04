@@ -56,6 +56,17 @@ which macOS and Freeform already use for their own screenshot tools.
 Press your shortcut and drag a region. The link lands on your clipboard, ready to
 paste. Select files in Finder and press the other shortcut to upload those.
 
+## Notifications
+
+Each action posts two notifications — **Upload started** and **Upload
+finished — link copied** — so you get confirmation even when the clipboard
+isn't visible.
+
+These use the built-in `osascript display notification`, which needs no
+dependency. If [terminal-notifier](https://github.com/julienXX/terminal-notifier)
+is installed it is used automatically instead, which gives more control over the
+banner. Neither is required.
+
 ## File safety
 
 Nothing of yours is ever deleted.

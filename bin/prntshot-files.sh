@@ -17,14 +17,20 @@ if [ ! -x "$UPLOADER" ]; then
     UPLOADER="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/prntshot-upload"
 fi
 
+# Prefer terminal-notifier (brew install terminal-notifier) and fall back to
+# the built-in osascript, which needs no dependency at all.
+#
+# Both paths need a single-line message: a newline inside an AppleScript string
+# literal is a syntax error, so collapse whitespace and strip quotes first.
 notify() {
     local title="$1" msg="$2"
+    title="$(printf '%s' "${title//\"/}" | tr '\n\r\t' '   ')"
+    msg="$(printf '%s' "${msg//\"/}" | tr '\n\r\t' '   ')"
+
     if command -v terminal-notifier >/dev/null 2>&1; then
-        terminal-notifier -title "$title" -message "$msg" -sender com.apple.Photos 2>/dev/null || \
-            osascript -e "display notification \"${msg//\"/}\" with title \"${title//\"/}\""
-    else
-        osascript -e "display notification \"${msg//\"/}\" with title \"${title//\"/}\""
+        terminal-notifier -title "$title" -message "$msg" 2>/dev/null && return 0
     fi
+    osascript -e "display notification \"${msg}\" with title \"${title}\"" 2>/dev/null || true
 }
 
 if [ ! -x "$UPLOADER" ]; then
@@ -50,6 +56,8 @@ if [ ${#files[@]} -eq 0 ]; then
     exit 1
 fi
 
+notify "prnt.li" "Upload started"
+
 # prnt.li accepts up to 10 files per multipart request; upload one at a time so
 # a single failure does not cost the rest, and so a huge selection still works.
 links=""
@@ -70,8 +78,8 @@ fi
 
 count=$(printf '%s' "$links" | grep -c . 2>/dev/null || echo 0)
 if [ "$failures" -gt 0 ]; then
-    notify "prnt.li" "Uploaded ${count} file(s), ${failures} failed"
+    notify "prnt.li" "Upload finished — ${count} ok, ${failures} failed"
     exit 1
 fi
 
-notify "prnt.li" "Uploaded ${count} file(s) — links copied"
+notify "prnt.li" "Upload finished — ${count} link(s) copied"

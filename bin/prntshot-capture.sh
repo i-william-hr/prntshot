@@ -15,14 +15,20 @@ if [ ! -x "$UPLOADER" ]; then
     UPLOADER="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/prntshot-upload"
 fi
 
+# Prefer terminal-notifier (brew install terminal-notifier) and fall back to
+# the built-in osascript, which needs no dependency at all.
+#
+# Both paths need a single-line message: a newline inside an AppleScript string
+# literal is a syntax error, so collapse whitespace and strip quotes first.
 notify() {
     local title="$1" msg="$2"
+    title="$(printf '%s' "${title//\"/}" | tr '\n\r\t' '   ')"
+    msg="$(printf '%s' "${msg//\"/}" | tr '\n\r\t' '   ')"
+
     if command -v terminal-notifier >/dev/null 2>&1; then
-        terminal-notifier -title "$title" -message "$msg" -sender com.apple.Photos 2>/dev/null || \
-            osascript -e "display notification \"${msg//\"/}\" with title \"${title//\"/}\""
-    else
-        osascript -e "display notification \"${msg//\"/}\" with title \"${title//\"/}\""
+        terminal-notifier -title "$title" -message "$msg" 2>/dev/null && return 0
     fi
+    osascript -e "display notification \"${msg}\" with title \"${title}\"" 2>/dev/null || true
 }
 
 if [ ! -x "$UPLOADER" ]; then
@@ -67,6 +73,8 @@ Recording and enable Automator, then try again."
     exit 0
 fi
 
+notify "prnt.li" "Upload started"
+
 link="$("$UPLOADER" "$tmppath" 2>/tmp/prntshot-capture-err.$$)"
 rc=$?
 err="$(cat "/tmp/prntshot-capture-err.$$" 2>/dev/null)"
@@ -76,7 +84,7 @@ if [ $rc -eq 0 ] && [ -n "$link" ]; then
     printf '%s' "$link" | pbcopy
     # Success: delete the temp file we created, and nothing else.
     rm -f "$tmppath"
-    notify "prnt.li" "Screenshot uploaded — link copied"
+    notify "prnt.li" "Upload finished — link copied"
 else
     # Failure: never delete the screenshot. Move it somewhere findable,
     # without ever overwriting an existing Desktop file.
