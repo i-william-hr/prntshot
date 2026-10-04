@@ -38,11 +38,14 @@ mkdir -p "$capture_dir"
 tmpname="prntshot-$(uuidgen).png"
 tmppath="${capture_dir}/${tmpname}"
 
-# -i interactive picker, -x no sound, -r no dpi metadata (smaller file),
-# -T 0 disables the floating thumbnail so it returns immediately.
+# -i interactive picker, -x no sound, -r no dpi metadata (smaller file).
+# NOTE: -T is a DELAY before capture ("take the picture after a delay of
+# <seconds>, default is 5"), NOT a thumbnail toggle. Passing -T 0 makes the
+# picker fire the capture immediately, before the user can drag a selection —
+# which is exactly why uploads were failing. Do not add -T here.
 # Keep stderr: if Screen Recording is denied, screencapture fails here and we
 # need to say so rather than appearing to do nothing.
-screencapture -i -x -r -T 0 "$tmppath" 2>/tmp/prntshot-scrot-err.$$
+screencapture -i -x -r "$tmppath" 2>/tmp/prntshot-scrot-err.$$
 scrot_exit=$?
 scrot_err="$(cat "/tmp/prntshot-scrot-err.$$" 2>/dev/null)"
 rm -f "/tmp/prntshot-scrot-err.$$"
