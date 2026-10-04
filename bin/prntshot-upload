@@ -1,0 +1,106 @@
+#!/bin/bash
+# prntshot-upload — upload a file to prnt.li and print the link to stdout.
+#
+# Used by the prnt.li Automator Quick Actions. Deliberately has no dependency
+# on any particular upload tool: it talks to the documented /api endpoint
+# directly with curl.
+#
+# File safety: this script NEVER deletes anything. The caller decides what
+# happens to the file it passed in.
+
+set -uo pipefail
+
+API="https://prnt.li/api/upload"
+
+input="${1:-}"
+if [ -z "$input" ] || [ ! -e "$input" ]; then
+    echo "prntshot: no such file: ${input:-<none>}" >&2
+    exit 2
+fi
+
+# Optional API key: raises the hourly allowance. Absent by default.
+api_header=()
+if [ -r "$HOME/.config/prntshot/apikey" ]; then
+    key="$(head -n1 "$HOME/.config/prntshot/apikey" 2>/dev/null | tr -d '\r\n')"
+    [ -n "$key" ] && api_header=(-H "X-API-Key: ${key}")
+fi
+
+mime="application/octet-stream"
+case "$(printf '%s' "$input" | tr '[:upper:]' '[:lower:]')" in
+    *.png)  mime="image/png" ;;
+    *.jpg|*.jpeg) mime="image/jpeg" ;;
+    *.gif)  mime="image/gif" ;;
+    *.webp) mime="image/webp" ;;
+    *.heic) mime="image/heic" ;;
+    *.pdf)  mime="application/pdf" ;;
+    *.txt)  mime="text/plain" ;;
+    *.mp4)  mime="video/mp4" ;;
+    *.mov)  mime="video/quicktime" ;;
+    *.mp3)  mime="audio/mpeg" ;;
+    *.zip)  mime="application/zip" ;;
+esac
+
+name="$(basename "$input")"
+
+# Raw-body upload: the body IS the file. Avoids assembling a multipart form for
+# the single-file case.
+body="$(curl -sS --fail-with-body \
+    --max-time 120 \
+    -X POST "$API" \
+    -H "Content-Type: ${mime}" \
+    -H "X-Filename: ${name}" \
+    "${api_header[@]+"${api_header[@]}"}" \
+    --data-binary "@${input}" 2>/dev/null)"
+
+if [ -z "$body" ]; then
+    echo "prntshot: upload failed (no response from prnt.li)" >&2
+    exit 1
+fi
+
+# Response is {"files":[{"url":...,"token":...,"kind":...}],"urls":[...],"errors":[...]}.
+# There is no "ok" key, and the type field is "kind". Pull the first usable url.
+url="$(printf '%s' "$body" | /usr/bin/python3 -c '
+import json,sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+
+# Surface partial failures: a 200 can still carry an errors array.
+errs = d.get("errors") or []
+if errs:
+    for e in errs:
+        msg = e.get("error") or e.get("name") or "unknown"
+        print("warning: %s" % msg, file=sys.stderr)
+
+for f in (d.get("files") or []):
+    u = f.get("url")
+    if u:
+        print(u)
+        sys.exit(0)
+
+for u in (d.get("urls") or []):
+    if u:
+        print(u)
+        sys.exit(0)
+
+# Nothing usable came back; fall through to the error below.
+msg = d.get("error")
+if msg:
+    print("prntshot: %s" % msg, file=sys.stderr)
+else:
+    print("prntshot: prnt.li returned no link", file=sys.stderr)
+sys.exit(1)
+' 2>/tmp/prntshot-err.$$)"
+
+rc=$?
+err="$(cat "/tmp/prntshot-err.$$" 2>/dev/null)"
+rm -f "/tmp/prntshot-err.$$"
+[ -n "$err" ] && echo "$err" >&2
+
+if [ $rc -ne 0 ] || [ -z "$url" ]; then
+    exit 1
+fi
+
+# Print the bare link and nothing else, so the caller can pipe it to pbcopy.
+printf '%s' "$url"

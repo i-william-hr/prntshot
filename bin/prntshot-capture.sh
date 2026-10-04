@@ -1,0 +1,90 @@
+#!/bin/bash
+# prntshot-capture — the body of the "prnt.li Screenshot" Quick Action.
+#
+# Shows macOS' native area picker (the same one behind cmd+shift+4), uploads
+# the result to prnt.li, copies the link, and deletes the temp file ONLY when
+# the upload succeeded. On failure the screenshot is kept on the Desktop.
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+# Locate the uploader. Automator runs this body from its own sandbox with no
+# meaningful BASH_SOURCE, so check the explicit install location first and fall
+# back to whatever directory this script happens to live in.
+UPLOADER="$HOME/.local/bin/prntshot-upload"
+if [ ! -x "$UPLOADER" ]; then
+    UPLOADER="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/prntshot-upload"
+fi
+
+notify() {
+    local title="$1" msg="$2"
+    if command -v terminal-notifier >/dev/null 2>&1; then
+        terminal-notifier -title "$title" -message "$msg" -sender com.apple.Photos 2>/dev/null || \
+            osascript -e "display notification \"${msg//\"/}\" with title \"${title//\"/}\""
+    else
+        osascript -e "display notification \"${msg//\"/}\" with title \"${title//\"/}\""
+    fi
+}
+
+if [ ! -x "$UPLOADER" ]; then
+    notify "prnt.li" "Upload helper not found at ${UPLOADER}"
+    exit 1
+fi
+
+# Private capture directory. Only files this script creates ever live here.
+capture_dir="$HOME/Library/Caches/com.prntshot.uploader"
+mkdir -p "$capture_dir"
+
+# Unique name so a collision is impossible.
+tmpname="prntshot-$(uuidgen).png"
+tmppath="${capture_dir}/${tmpname}"
+
+# -i interactive picker, -x no sound, -r no dpi metadata (smaller file),
+# -T 0 disables the floating thumbnail so it returns immediately.
+# Keep stderr: if Screen Recording is denied, screencapture fails here and we
+# need to say so rather than appearing to do nothing.
+screencapture -i -x -r -T 0 "$tmppath" 2>/tmp/prntshot-scrot-err.$$
+scrot_exit=$?
+scrot_err="$(cat "/tmp/prntshot-scrot-err.$$" 2>/dev/null)"
+rm -f "/tmp/prntshot-scrot-err.$$"
+
+# Nothing written: either the user cancelled (ESC / right-click), which is
+# normal and silent, or screencapture was denied.
+if [ $scrot_exit -ne 0 ] || [ ! -f "$tmppath" ]; then
+    [ -f "$tmppath" ] && rm -f "$tmppath"
+
+    # Distinguish "cancelled" from "denied". A cancel produces no file and no
+    # error text; a permission failure reports itself.
+    if [ -n "$scrot_err" ]; then
+        notify "prnt.li — cannot capture" \
+            "Screen Recording is not allowed for Automator.
+
+Open System Settings > Privacy & Security > Screen & System Audio
+Recording and enable Automator, then try again."
+    fi
+    exit 0
+fi
+
+link="$("$UPLOADER" "$tmppath" 2>/tmp/prntshot-capture-err.$$)"
+rc=$?
+err="$(cat "/tmp/prntshot-capture-err.$$" 2>/dev/null)"
+rm -f "/tmp/prntshot-capture-err.$$"
+
+if [ $rc -eq 0 ] && [ -n "$link" ]; then
+    printf '%s' "$link" | pbcopy
+    # Success: delete the temp file we created, and nothing else.
+    rm -f "$tmppath"
+    notify "prnt.li" "Screenshot uploaded — link copied"
+else
+    # Failure: never delete the screenshot. Move it somewhere findable,
+    # without ever overwriting an existing Desktop file.
+    stamp="$(date '+%Y-%m-%d-%H%M%S')"
+    dest="$HOME/Desktop/prntshot-${stamp}.png"
+    n=1
+    while [ -e "$dest" ]; do
+        dest="$HOME/Desktop/prntshot-${stamp}-${n}.png"
+        n=$((n + 1))
+    done
+    mv "$tmppath" "$dest" 2>/dev/null || dest="$tmppath"
+    notify "prnt.li — upload failed" "Screenshot kept at ${dest}"
+    [ -n "$err" ] && echo "prntshot: ${err}" >&2
+fi
