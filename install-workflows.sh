@@ -11,8 +11,14 @@ STAGE="$ROOT/build/workflows"
 SERVICES="$HOME/Library/Services"
 BIN="$HOME/.local/bin"
 
+# Always regenerate. The .workflow bundles embed a copy of the shell bodies, so
+# installing a previously-generated bundle would silently ship stale scripts
+# that no longer match bin/.
+echo "==> Generating workflows from bin/ and templates/"
+"$ROOT/make-workflows.sh" >/dev/null
+
 if [ ! -d "$STAGE" ]; then
-    echo "Run ./make-workflows.sh first."
+    echo "make-workflows.sh did not produce $STAGE"
     exit 1
 fi
 
@@ -23,6 +29,16 @@ mkdir -p "$BIN"
 install -m 755 "$ROOT/bin/prntshot-upload"   "$BIN/prntshot-upload"
 install -m 755 "$ROOT/bin/prntshot-capture.sh" "$BIN/prntshot-capture.sh"
 install -m 755 "$ROOT/bin/prntshot-files.sh"   "$BIN/prntshot-files.sh"
+
+echo "==> Building and installing the notifier app"
+# A real .app bundle, because notifications posted from a script run by
+# Automator are attributed to Automator, which never registers with the
+# notification system — so the banner is dropped and osascript still exits 0.
+"$ROOT/build-notifier.sh" >/dev/null
+rm -rf "$BIN/prntshot-notify.app"
+cp -R "$ROOT/build/prntshot-notify.app" "$BIN/"
+xattr -dr com.apple.quarantine "$BIN/prntshot-notify.app" 2>/dev/null || true
+echo "    $BIN/prntshot-notify.app"
 
 echo "==> Installing workflows to $SERVICES"
 mkdir -p "$SERVICES"

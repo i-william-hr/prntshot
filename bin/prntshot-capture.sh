@@ -15,16 +15,27 @@ if [ ! -x "$UPLOADER" ]; then
     UPLOADER="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/prntshot-upload"
 fi
 
-# Prefer terminal-notifier (brew install terminal-notifier) and fall back to
-# the built-in osascript, which needs no dependency at all.
+# Post a notification.
 #
-# Both paths need a single-line message: a newline inside an AppleScript string
-# literal is a syntax error, so collapse whitespace and strip quotes first.
+# Preferred path is our own bundled notifier: it has its own bundle identifier,
+# so macOS attributes the notification to it and it registers with the
+# notification system. `osascript -e 'display notification'` from an Automator
+# Quick Action is attributed to Automator, which never registers, so the banner
+# is silently dropped while osascript still exits 0.
+#
+# Messages are collapsed to one line: a raw newline inside an AppleScript string
+# literal is a syntax error, so the fallback would fail on multi-line text.
 notify() {
     local title="$1" msg="$2"
     title="$(printf '%s' "${title//\"/}" | tr '\n\r\t' '   ')"
     msg="$(printf '%s' "${msg//\"/}" | tr '\n\r\t' '   ')"
 
+    local notifier="$HOME/.local/bin/prntshot-notify.app"
+    if [ -d "$notifier" ]; then
+        # LaunchServices (open) rather than executing the binary directly:
+        # direct execution would inherit Automator's identity.
+        open -a "$notifier" --args "$title" "$msg" 2>/dev/null && return 0
+    fi
     if command -v terminal-notifier >/dev/null 2>&1; then
         terminal-notifier -title "$title" -message "$msg" 2>/dev/null && return 0
     fi

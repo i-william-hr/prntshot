@@ -62,10 +62,28 @@ Each action posts two notifications — **Upload started** and **Upload
 finished — link copied** — so you get confirmation even when the clipboard
 isn't visible.
 
-These use the built-in `osascript display notification`, which needs no
-dependency. If [terminal-notifier](https://github.com/julienXX/terminal-notifier)
-is installed it is used automatically instead, which gives more control over the
-banner. Neither is required.
+These come from `prntshot-notify.app`, a ~40-line helper built by
+`build-notifier.sh`. **It has to be a real app bundle with its own bundle
+identifier**, because of how macOS attributes notifications:
+
+> `osascript -e 'display notification'` run from an Automator Quick Action is
+> attributed to **Automator**, which never registers with the notification
+> system. The banner is silently dropped — and `osascript` still exits `0`, so
+> it looks like it succeeded. Verified by running a notification from a real
+> Automator context and confirming `com.apple.Automator` never appeared in
+> `~/Library/Preferences/com.apple.ncprefs.plist`.
+
+A bundled helper registers correctly (`com.prntshot.notify`), so macOS will list
+it under **System Settings ▸ Notifications** as *prntshot*.
+
+**On first use macOS will ask whether prntshot may send notifications — click
+Allow.** If you missed the prompt, enable it manually in System Settings ▸
+Notifications ▸ prntshot. Until it is allowed, uploads still work; you just
+won't get the banner.
+
+The helper is launched with `open -a` rather than executed directly, since
+direct execution inherits the calling process' identity and reintroduces the
+same attribution problem.
 
 ## File safety
 
@@ -88,6 +106,8 @@ directory, and only after a confirmed successful upload.
 bin/prntshot-upload       curl wrapper for POST /api/upload; prints the bare link
 bin/prntshot-capture.sh   the Screenshot Quick Action body
 bin/prntshot-files.sh     the Upload-selection Quick Action body
+Sources/prntshot-notify.swift   posts one notification from its own app identity
+build-notifier.sh         builds prntshot-notify.app
 make-workflows.sh         generates the .workflow bundles from templates/
 install-workflows.sh      installs everything and refreshes the Services cache
 templates/                known-good .workflow files, used as the generator basis
